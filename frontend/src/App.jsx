@@ -7,6 +7,7 @@ const ANALYZE_MINUTES = 10  // 提案時に参照する直近の分数
 
 function useSessionId() {
   const [sessionId, setSessionId] = useState(null)
+  const [myUserId, setMyUserId] = useState(null)
   const isZoomEnv = useRef(false)
 
   useEffect(() => {
@@ -16,12 +17,26 @@ function useSessionId() {
           capabilities: [
             'getMeetingContext',
             'onMeetingTranscriptReceived',
+            'getCurrentUser',
+            'startTranscription',
           ],
           version: '0.16',
         })
         const ctx = await zoomSdk.getMeetingContext()
         setSessionId(`zoom-${ctx.meetingID}`)
         isZoomEnv.current = true
+
+        // 自分のuserIdを取得（話者判定用）
+        try {
+          const me = await zoomSdk.getCurrentUser()
+          setMyUserId(me.userId ?? me.participantId ?? null)
+        } catch { /* ユーザー取得失敗は無視 */ }
+
+        // ライブ文字起こしの自動開始を試みる（失敗してもOK）
+        try {
+          await zoomSdk.callZoomJsService({ service: 'startTranscription' })
+        } catch { /* ホストでなければ失敗するが問題なし */ }
+
       } catch {
         const devId = `dev-${Date.now()}`
         setSessionId(devId)
@@ -31,7 +46,7 @@ function useSessionId() {
     init()
   }, [])
 
-  return { sessionId, isZoomEnv }
+  return { sessionId, isZoomEnv, myUserId }
 }
 
 const TYPE_CONFIG = {
@@ -72,7 +87,7 @@ const INTERVAL_OPTIONS = [
 ]
 
 export default function App() {
-  const { sessionId, isZoomEnv } = useSessionId()
+  const { sessionId, isZoomEnv, myUserId } = useSessionId()
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -85,6 +100,11 @@ export default function App() {
   useEffect(() => {
     const t = setInterval(() => setTick(n => n + 1), 5000)
     return () => clearInterval(t)
+  }, [])
+
+  // Renderのスリープ防止：起動時にバックエンドをウォームアップ
+  useEffect(() => {
+    fetch(`${API_BASE}/health`).catch(() => {})
   }, [])
 
   // 発言をバックエンドに記録（分析は発動しない）
@@ -129,8 +149,9 @@ export default function App() {
     if (!sessionId || !isZoomEnv.current) return
 
     zoomSdk.addEventListener('onMeetingTranscriptReceived', (event) => {
-      const { transcriptText, participantRole } = event
-      const speaker = participantRole === 'host' ? 'salesperson' : 'customer'
+      const { transcriptText, userId } = event
+      // 自分のuserIdと一致すれば営業、違えばお客様
+      const speaker = (myUserId && userId === myUserId) ? 'salesperson' : 'customer'
       setTranscript(prev => [...prev.slice(-30), { speaker, text: transcriptText }])
       recordTranscript(speaker, transcriptText)
     })
@@ -140,7 +161,7 @@ export default function App() {
         fetch(`${API_BASE}/session/${sessionId}`, { method: 'DELETE' }).catch(() => {})
       }
     }
-  }, [sessionId, recordTranscript])
+  }, [sessionId, myUserId, recordTranscript])
 
   // 定期自動分析タイマー
   useEffect(() => {
@@ -166,13 +187,25 @@ export default function App() {
     return <div className="loading-screen">初期化中...</div>
   }
 
+  // 文字起こし受信状況
+  const transcriptStatus = isZoomEnv.current
+    ? transcript.length > 0
+      ? `🎙️ ${transcript.length}件受信中`
+      : '🎙️ 文字起こし待機中'
+    : null
+
   return (
     <div className="app">
       <header className="app-header">
         <h1>アポ同席くん</h1>
-        <span className={`status ${loading ? 'analyzing' : 'ready'}`}>
-          {loading ? '分析中...' : '待機中'}
-        </span>
+        <div className="header-right">
+          {transcriptStatus && (
+            <span className="transcript-status">{transcriptStatus}</span>
+          )}
+          <span className={`status ${loading ? 'analyzing' : 'ready'}`}>
+            {loading ? '分析中...' : '待機中'}
+          </span>
+        </div>
       </header>
 
       {/* コントロールパネル */}

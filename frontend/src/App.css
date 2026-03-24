@@ -49,6 +49,17 @@ body {
   letter-spacing: 0;
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.transcript-status {
+  font-size: 10px;
+  color: #94a3b8;
+}
+
 .status {
   font-size: 11px;
   padding: 2px 8px;
