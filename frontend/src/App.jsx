@@ -25,7 +25,7 @@ function useSessionId() {
       } catch {
         const devId = `dev-${Date.now()}`
         setSessionId(devId)
-        console.info('[道場くん] Zoom SDK unavailable. Using dev session:', devId)
+        console.info('[アポ同席くん] Zoom SDK unavailable. Using dev session:', devId)
       }
     }
     init()
@@ -169,7 +169,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>道場くん</h1>
+        <h1>アポ同席くん</h1>
         <span className={`status ${loading ? 'analyzing' : 'ready'}`}>
           {loading ? '分析中...' : '待機中'}
         </span>
